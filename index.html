@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoneyLog</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"SF Pro JP"', '"Hiragino Sans"', '"Helvetica Neue"', 'sans-serif'],
+          },
+          colors: {
+            app: {
+              bg: '#F5F5F7',
+              text: '#1D1D1F',
+              accent: '#0F382C',
+              success: '#0F4C3A',
+              danger: '#FF3B30',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #F5F5F7;
+      color: #1D1D1F;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    /* タブのスクロールバーを非表示にするがスクロールは可能に */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* 数値入力フィールドのスピンボタン（上下矢印）を非表示に */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    
+    /* カードの共通スタイル */
+    .bento-card {
+      background-color: white;
+      border-radius: 1rem; /* 少し丸みを抑えてスペース確保 */
+      padding: 1rem; /* 24pxから16pxに圧縮 */
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+      display: flex;
+      flex-direction: column;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-2 sm:p-3 md:p-4 max-w-6xl mx-auto">
+
+  <header class="mb-3 mt-1 px-2 flex justify-between items-end">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-app-text">MoneyLog</h1>
+      <p id="current-month-display" class="text-xs text-gray-500 mt-0.5 font-medium"></p>
+    </div>
+  </header>
+
+  <!-- Bento Grid Container -->
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
+    
+    <!-- 1. Summary Hero Card (Full Width) -->
+    <div class="bento-card md:col-span-12 !p-4">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+        <div class="w-full md:w-auto">
+          <p class="text-xs font-medium text-gray-500 mb-1">今月の残高（黒字/赤字）</p>
+          <div class="flex items-baseline gap-2">
+            <h2 id="summary-balance" class="text-3xl sm:text-4xl font-bold tracking-tighter text-app-success">
+              ¥0
+            </h2>
+          </div>
+        </div>
+
+        <div class="flex w-full md:w-auto gap-4 md:gap-6 border-t md:border-t-0 md:border-l border-gray-100 pt-3 md:pt-0 md:pl-6">
+          <div>
+            <div class="flex items-center gap-1 text-gray-500 mb-0.5">
+              <i data-lucide="trending-up" class="w-3.5 h-3.5 text-app-success"></i>
+              <span class="text-[11px] font-medium">総収入</span>
+            </div>
+            <p id="summary-income" class="text-lg font-semibold">¥0</p>
+          </div>
+          <div>
+            <div class="flex items-center gap-1 text-gray-500 mb-0.5">
+              <i data-lucide="trending-down" class="w-3.5 h-3.5 text-app-danger"></i>
+              <span class="text-[11px] font-medium">総支出</span>
+            </div>
+            <p id="summary-expense" class="text-lg font-semibold">¥0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Target vs Actual Progress Bar Overall -->
+      <div class="mt-4 pt-3 border-t border-gray-100">
+        <div class="flex justify-between text-[11px] font-medium mb-1.5 items-center">
+          <span id="summary-target" class="text-gray-500">全体の支出目標（予算）: ¥0</span>
+          <span id="summary-diff-badge" class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-app-success/10 text-app-success">
+            残枠: +¥0
+          </span>
+        </div>
+        <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
+          <div id="summary-progress-bar" class="h-full rounded-full transition-all duration-700 ease-out bg-app-accent" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Jobs & Income (Left Column on Desktop) -->
+    <div class="bento-card md:col-span-5 lg:col-span-4">
+      <div class="flex items-center gap-2 mb-3">
+        <div class="w-8 h-8 rounded-xl bg-app-bg flex items-center justify-center text-app-text">
+          <i data-lucide="briefcase" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-app-text tracking-tight">給与・収入</h2>
+          <p class="text-[11px] text-gray-500 mt-0.5">仕事別の期間と金額</p>
+        </div>
+      </div>
+      
+      <!-- Tabs Container -->
+      <div id="job-tabs-container" class="flex overflow-x-auto no-scrollbar gap-2 mb-3 pb-1 -mx-1 px-1">
+        <!-- Rendered by JS -->
+      </div>
+
+      <!-- Active Job Details Container -->
+      <div id="job-details-container" class="bg-gray-50/50 rounded-xl p-3 border border-gray-100 relative min-h-[160px]">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- 3. Expenses Section (Right Column on Desktop) -->
+    <div class="md:col-span-7 lg:col-span-8 flex flex-col gap-3 md:gap-4">
+      
+      <!-- 3a. Fixed Expenses -->
+      <div class="bento-card flex-1">
+        <div class="flex justify-between items-center mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-xl bg-app-bg flex items-center justify-center text-app-text">
+              <i data-lucide="wallet" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-app-text tracking-tight">固定費</h2>
+              <p id="fixed-total-display" class="text-[11px] text-gray-500 mt-0.5">合計: ¥0</p>
+            </div>
+          </div>
+          <button onclick="App.addExpense('fixed')" class="h-11 md:h-9 px-4 rounded-full bg-app-accent/5 text-app-accent text-sm font-medium hover:bg-app-accent/10 transition-colors flex items-center justify-center gap-1">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>追加</span>
+          </button>
+        </div>
+        <div id="fixed-expenses-list" class="space-y-2">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- 3b. Variable Expenses -->
+      <div class="bento-card flex-1">
+        <div class="flex justify-between items-center mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-xl bg-app-bg flex items-center justify-center text-app-text">
+              <i data-lucide="pie-chart" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-app-text tracking-tight">変動費</h2>
+              <p id="variable-total-display" class="text-[11px] text-gray-500 mt-0.5">合計: ¥0</p>
+            </div>
+          </div>
+          <button onclick="App.addExpense('variable')" class="h-11 md:h-9 px-4 rounded-full bg-app-accent/5 text-app-accent text-sm font-medium hover:bg-app-accent/10 transition-colors flex items-center justify-center gap-1">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>追加</span>
+          </button>
+        </div>
+        <div id="variable-expenses-list" class="space-y-2">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // --- Utilities ---
+    const generateId = () => Math.random().toString(36).substr(2, 9);
+    
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(amount || 0);
+    };
+    
+    const formatDiff = (diff) => {
+      if (diff > 0) return '+' + formatCurrency(diff);
+      if (diff < 0) return formatCurrency(diff); // Intl.NumberFormat automatically adds '-'
+      return '±' + formatCurrency(0);
+    };
+
+    const escapeHTML = (str) => {
+      if (!str) return '';
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    };
+
+    // --- Default Data ---
+    const defaultData = {
+      jobs: [
+        { id: 'job-1', name: 'メインの仕事', amount: 0, startDate: '', endDate: '' }
+      ],
+      expenses: {
+        fixed: [
+          { id: 'f-1', name: '家賃', target: 0, actual: 0 },
+          { id: 'f-2', name: '水道光熱費', target: 0, actual: 0 },
+          { id: 'f-3', name: '通信費', target: 0, actual: 0 }
+        ],
+        variable: [
+          { id: 'v-1', name: '食費', target: 0, actual: 0 },
+          { id: 'v-2', name: '交際費', target: 0, actual: 0 },
+          { id: 'v-3', name: '日用品', target: 0, actual: 0 }
+        ]
+      }
+    };
+
+    // --- Application Logic ---
+    const App = {
+      data: null,
+      activeJobId: null,
+
+      init() {
+        // Setup Date Display
+        const now = new Date();
+        document.getElementById('current-month-display').textContent = `${now.getFullYear()}年 ${now.getMonth() + 1}月`;
+
+        // Load Data
+        try {
+          const saved = localStorage.getItem('moneylog_data');
+          this.data = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(defaultData));
+        } catch (e) {
+          this.data = JSON.parse(JSON.stringify(defaultData));
+        }
+
+        // Ensure valid active job
+        if (this.data.jobs.length > 0) {
+          this.activeJobId = this.data.jobs[0].id;
+        }
+
+        this.renderAll();
+      },
+
+      save() {
+        localStorage.setItem('moneylog_data', JSON.stringify(this.data));
+        this.updateSummaryUI();
+      },
+
+      // --- Calculations ---
+      getTotals() {
+        const totalIncome = this.data.jobs.reduce((sum, job) => sum + (Number(job.amount) || 0), 0);
+        
+        const calc = (items) => items.reduce((acc, item) => ({
+          target: acc.target + (Number(item.target) || 0),
+          actual: acc.actual + (Number(item.actual) || 0)
+        }), { target: 0, actual: 0 });
+
+        const fixed = calc(this.data.expenses.fixed);
+        const variable = calc(this.data.expenses.variable);
+
+        const totalActualExpenses = fixed.actual + variable.actual;
+        const totalTargetExpenses = fixed.target + variable.target;
+        
+        return {
+          totalIncome,
+          totalFixedActual: fixed.actual,
+          totalVarActual: variable.actual,
+          totalActualExpenses,
+          totalTargetExpenses,
+          balance: totalIncome - totalActualExpenses,
+          expensesDifference: totalTargetExpenses - totalActualExpenses
+        };
+      },
+
+      // --- Actions: Jobs ---
+      setActiveJob(id) {
+        this.activeJobId = id;
+        this.renderJobTabs();
+        this.renderJobDetails();
+      },
+
+      addJob() {
+        const newJob = { id: generateId(), name: '新規の仕事', amount: 0, startDate: '', endDate: '' };
+        this.data.jobs.push(newJob);
+        this.activeJobId = newJob.id;
+        this.save();
+        this.renderJobTabs();
+        this.renderJobDetails();
+      },
+
+      updateJob(id, field, value) {
+        const job = this.data.jobs.find(j => j.id === id);
+        if (job) {
+          job[field] = field === 'amount' ? (Number(value) || 0) : value;
+          this.save();
+          // Tabs might need name update
+          if(field === 'name') this.renderJobTabs();
+        }
+      },
+
+      deleteJob(id) {
+        if (this.data.jobs.length <= 1) return; // Prevent deleting last job
+        this.data.jobs = this.data.jobs.filter(job => job.id !== id);
+        if (this.activeJobId === id) {
+          this.activeJobId = this.data.jobs[0].id;
+        }
+        this.save();
+        this.renderJobTabs();
+        this.renderJobDetails();
+      },
+
+      // --- Actions: Expenses ---
+      addExpense(type) {
+        const newExpense = { id: generateId(), name: '', target: 0, actual: 0 };
+        this.data.expenses[type].push(newExpense);
+        this.save();
+        this.renderExpenseList(type);
+      },
+
+      deleteExpense(type, id) {
+        this.data.expenses[type] = this.data.expenses[type].filter(exp => exp.id !== id);
+        this.save();
+        this.renderExpenseList(type);
+      },
+
+      updateExpense(type, id, field, value) {
+        const exp = this.data.expenses[type].find(e => e.id === id);
+        if (exp) {
+          exp[field] = field === 'name' ? value : (Number(value) || 0);
+          this.save();
+          this.updateExpenseItemUI(id, exp);
+        }
+      },
+
+      // --- STREAMING_CHUNK:Rendering functions for UI updates... ---
+      renderAll() {
+        this.renderJobTabs();
+        this.renderJobDetails();
+        this.renderExpenseList('fixed');
+        this.renderExpenseList('variable');
+        this.updateSummaryUI();
+      },
+
+      updateSummaryUI() {
+        const totals = this.getTotals();
+        
+        const balEl = document.getElementById('summary-balance');
+        balEl.textContent = `${totals.balance > 0 ? '+' : ''}${formatCurrency(totals.balance)}`;
+        balEl.className = `text-3xl sm:text-4xl font-bold tracking-tighter ${totals.balance >= 0 ? 'text-app-success' : 'text-app-danger'}`;
+
+        document.getElementById('summary-income').textContent = formatCurrency(totals.totalsIncome || totals.totalIncome);
+        document.getElementById('summary-expense').textContent = formatCurrency(totals.totalActualExpenses);
+        document.getElementById('summary-target').textContent = `全体の支出目標（予算）: ${formatCurrency(totals.totalTargetExpenses)}`;
+        
+        // Overall Progress Bar and Diff
+        const isOver = totals.totalActualExpenses > totals.totalTargetExpenses;
+        const diffBadge = document.getElementById('summary-diff-badge');
+        diffBadge.textContent = `残枠: ${formatDiff(totals.expensesDifference)}`;
+        diffBadge.className = `px-2 py-0.5 rounded-full text-[11px] font-bold ${isOver ? 'bg-app-danger/10 text-app-danger' : 'bg-app-success/10 text-app-success'}`;
+        
+        const progressBar = document.getElementById('summary-progress-bar');
+        progressBar.style.width = `${Math.min((totals.totalActualExpenses / (totals.totalTargetExpenses || 1)) * 100, 100)}%`;
+        progressBar.className = `h-full rounded-full transition-all duration-700 ease-out ${isOver ? 'bg-app-danger' : 'bg-app-accent'}`;
+
+        document.getElementById('fixed-total-display').textContent = `合計: ${formatCurrency(totals.totalFixedActual)}`;
+        document.getElementById('variable-total-display').textContent = `合計: ${formatCurrency(totals.totalVarActual)}`;
+      },
+
+      renderJobTabs() {
+        const container = document.getElementById('job-tabs-container');
+        let html = '';
+        
+        this.data.jobs.forEach(job => {
+          const isActive = job.id === this.activeJobId;
+          const classes = isActive 
+            ? 'bg-app-accent text-white shadow-md' 
+            : 'bg-gray-50 text-gray-600 hover:bg-gray-100';
+          
+          html += `
+            <button onclick="App.setActiveJob('${job.id}')" class="px-4 h-11 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 flex-shrink-0 ${classes}">
+              ${escapeHTML(job.name) || '無名'}
+            </button>
+          `;
+        });
+
+        html += `
+          <button onclick="App.addJob()" class="w-11 h-11 rounded-full bg-gray-50 text-gray-600 hover:bg-gray-100 flex items-center justify-center flex-shrink-0 transition-colors" aria-label="仕事を追加">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+          </button>
+        `;
+        
+        container.innerHTML = html;
+        lucide.createIcons();
+      },
+
+      renderJobDetails() {
+        const container = document.getElementById('job-details-container');
+        const job = this.data.jobs.find(j => j.id === this.activeJobId);
+        
+        if (!job) {
+          container.innerHTML = '<p class="text-gray-400 text-sm p-3">仕事が選択されていません</p>';
+          return;
+        }
+
+        const deleteBtnHtml = this.data.jobs.length > 1 ? `
+          <button onclick="App.deleteJob('${job.id}')" class="absolute top-2 right-2 text-gray-400 hover:text-app-danger transition-colors p-2">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        ` : '';
+
+        container.innerHTML = `
+          ${deleteBtnHtml}
+          <div class="space-y-0 mt-1">
+            
+            <div class="flex items-center justify-between py-1 border-b border-gray-100 group">
+              <span class="text-xs font-medium text-gray-600 flex-shrink-0 w-16">仕事名</span>
+              <input type="text" value="${escapeHTML(job.name)}" oninput="App.updateJob('${job.id}', 'name', this.value)" placeholder="メインの仕事" class="w-full bg-transparent text-right text-app-text text-sm focus:outline-none focus:ring-2 focus:ring-app-accent/20 rounded-lg px-2 py-1 h-11 transition-all">
+            </div>
+
+            <div class="flex items-center justify-between py-1 border-b border-gray-100 group">
+              <span class="text-xs font-medium text-gray-600 flex-shrink-0 w-10">期間</span>
+              <div class="flex items-center gap-1 w-full justify-end">
+                <input type="date" value="${job.startDate}" oninput="App.updateJob('${job.id}', 'startDate', this.value)" class="bg-transparent text-app-text text-[13px] focus:outline-none h-11 px-0.5 w-[115px]">
+                <span class="text-gray-300 text-xs">〜</span>
+                <input type="date" value="${job.endDate}" oninput="App.updateJob('${job.id}', 'endDate', this.value)" class="bg-transparent text-app-text text-[13px] focus:outline-none h-11 px-0.5 w-[115px]">
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between py-1 group">
+              <span class="text-xs font-medium text-gray-600 flex-shrink-0 w-16">給与額</span>
+              <input type="number" value="${job.amount || ''}" oninput="App.updateJob('${job.id}', 'amount', this.value)" placeholder="0" class="w-full bg-transparent text-right text-app-text text-sm focus:outline-none focus:ring-2 focus:ring-app-accent/20 rounded-lg px-2 py-1 h-11 transition-all">
+            </div>
+
+          </div>
+        `;
+        lucide.createIcons();
+      },
+
+      // --- STREAMING_CHUNK:Rendering and dynamically updating individual expenses... ---
+      renderExpenseList(type) {
+        const container = document.getElementById(`${type}-expenses-list`);
+        const items = this.data.expenses[type];
+        let html = '';
+
+        items.forEach(item => {
+          const isOver = item.actual > item.target;
+          const diff = item.target - item.actual;
+          
+          html += `
+            <div id="expense-container-${item.id}" class="group flex flex-col p-3 bg-gray-50 rounded-xl border border-gray-100/50">
+              <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                <input type="text" value="${escapeHTML(item.name)}" oninput="App.updateExpense('${type}', '${item.id}', 'name', this.value)" placeholder="分類名" class="font-medium text-sm text-app-text bg-transparent focus:outline-none focus:ring-2 focus:ring-app-accent/20 rounded px-1 -ml-1 h-11 w-full sm:w-1/3">
+                
+                <div class="flex-1 flex items-center gap-1.5">
+                  <div class="flex-1 relative">
+                    <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">目標</span>
+                    <input type="number" value="${item.target || ''}" oninput="App.updateExpense('${type}', '${item.id}', 'target', this.value)" class="w-full h-11 bg-white rounded-lg pl-8 pr-2 text-sm focus:outline-none border border-gray-100 text-right">
+                  </div>
+                  <div class="flex-1 relative">
+                    <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">実績</span>
+                    <input id="expense-actual-${item.id}" type="number" value="${item.actual || ''}" oninput="App.updateExpense('${type}', '${item.id}', 'actual', this.value)" class="w-full h-11 bg-white rounded-lg pl-8 pr-2 text-sm focus:outline-none border ${isOver ? 'border-app-danger/30 text-app-danger' : 'border-gray-100'} text-right font-medium">
+                  </div>
+                  <button onclick="App.deleteExpense('${type}', '${item.id}')" class="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-app-danger transition-colors rounded-lg flex-shrink-0">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              </div>
+              
+              <div class="mt-2 flex items-center gap-2">
+                <div class="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                   <div id="expense-bar-${item.id}" class="h-full rounded-full transition-all duration-500 ${isOver ? 'bg-app-danger' : 'bg-app-success'}" style="width: ${Math.min((item.actual / (item.target || 1)) * 100, 100)}%"></div>
+                </div>
+                <span id="expense-diff-${item.id}" class="text-[11px] font-bold whitespace-nowrap ${isOver ? 'text-app-danger' : 'text-app-success'}">
+                  残枠: ${formatDiff(diff)}
+                </span>
+              </div>
+            </div>
+          `;
+        });
+
+        if (items.length === 0) {
+           html = `<p class="text-sm text-center text-gray-400 py-3">項目がありません</p>`;
+        }
+
+        container.innerHTML = html;
+        lucide.createIcons();
+      },
+
+      updateExpenseItemUI(id, item) {
+        const isOver = item.actual > item.target;
+        const diff = item.target - item.actual;
+        
+        const diffEl = document.getElementById(`expense-diff-${id}`);
+        const barEl = document.getElementById(`expense-bar-${id}`);
+        const actualInputEl = document.getElementById(`expense-actual-${id}`);
+        
+        if (diffEl) {
+          diffEl.textContent = `残枠: ${formatDiff(diff)}`;
+          diffEl.className = `text-[11px] font-bold whitespace-nowrap ${isOver ? 'text-app-danger' : 'text-app-success'}`;
+        }
+
+        const deleteBtnHtml = this.data.jobs.length > 1 ? `
+          <button onclick="App.deleteJob('${job.id}')" class="absolute top-4 right-4 text-gray-400 hover:text-app-danger transition-colors p-2 -m-2">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        ` : '';
+
+        container.innerHTML = `
+          ${deleteBtnHtml}
+          <div class="space-y-1 mt-2">
+            
+            <div class="flex items-center justify-between py-2 border-b border-gray-100 group">
+              <span class="text-sm font-medium text-gray-600 flex-shrink-0 w-24">仕事名</span>
+              <input type="text" value="${escapeHTML(job.name)}" oninput="App.updateJob('${job.id}', 'name', this.value)" placeholder="メインの仕事" class="w-full bg-transparent text-right text-app-text text-base focus:outline-none focus:ring-2 focus:ring-app-accent/20 rounded-lg px-2 py-1 h-11 transition-all">
+            </div>
+
+            <div class="flex items-center justify-between py-2 border-b border-gray-100 group">
+              <span class="text-sm font-medium text-gray-600 flex-shrink-0 w-16">期間</span>
+              <div class="flex items-center gap-2 w-full justify-end">
+                <input type="date" value="${job.startDate}" oninput="App.updateJob('${job.id}', 'startDate', this.value)" class="bg-transparent text-app-text text-sm focus:outline-none h-11 px-1">
+                <span class="text-gray-300">〜</span>
+                <input type="date" value="${job.endDate}" oninput="App.updateJob('${job.id}', 'endDate', this.value)" class="bg-transparent text-app-text text-sm focus:outline-none h-11 px-1">
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between py-2 group">
+              <span class="text-sm font-medium text-gray-600 flex-shrink-0 w-24">給与額</span>
+              <input type="number" value="${job.amount || ''}" oninput="App.updateJob('${job.id}', 'amount', this.value)" placeholder="0" class="w-full bg-transparent text-right text-app-text text-base focus:outline-none focus:ring-2 focus:ring-app-accent/20 rounded-lg px-2 py-1 h-11 transition-all">
+            </div>
+
+          </div>
+        `;
+        lucide.createIcons();
+      },
+
+      // --- STREAMING_CHUNK:Rendering and dynamically updating individual expenses... ---
+      renderExpenseList(type) {
+        const container = document.getElementById(`${type}-expenses-list`);
+        const items = this.data.expenses[type];
+        let html = '';
+
+        items.forEach(item => {
+          const isOver = item.actual > item.target;
+          const diff = item.target - item.actual;
+          
+          html += `
+            <div id="expense-container-${item.id}" class="group flex flex-col p-4 bg-gray-50 rounded-2xl border border-gray-100/50">
+              <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+                <input type="text" value="${escapeHTML(item.name)}" oninput="App.updateExpense('${type}', '${item.id}', 'name', this.value)" placeholder="分類名" class="font-medium text-app-text bg-transparent focus:outline-none focus:ring-2 focus:ring-app-accent/20 rounded px-1 -ml-1 h-11 w-full sm:w-1/3">
+                
+                <div class="flex-1 flex items-center gap-2">
+                  <div class="flex-1 relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">目標</span>
+                    <input type="number" value="${item.target || ''}" oninput="App.updateExpense('${type}', '${item.id}', 'target', this.value)" class="w-full h-11 bg-white rounded-xl pl-10 pr-3 text-sm focus:outline-none border border-gray-100 text-right">
+                  </div>
+                  <div class="flex-1 relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">実績</span>
+                    <input id="expense-actual-${item.id}" type="number" value="${item.actual || ''}" oninput="App.updateExpense('${type}', '${item.id}', 'actual', this.value)" class="w-full h-11 bg-white rounded-xl pl-10 pr-3 text-sm focus:outline-none border ${isOver ? 'border-app-danger/30 text-app-danger' : 'border-gray-100'} text-right font-medium">
+                  </div>
+                  <button onclick="App.deleteExpense('${type}', '${item.id}')" class="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-app-danger transition-colors rounded-xl flex-shrink-0">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                  </button>
+                </div>
+              </div>
+              
+              <div class="mt-3 flex items-center gap-3">
+                <div class="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                   <div id="expense-bar-${item.id}" class="h-full rounded-full transition-all duration-500 ${isOver ? 'bg-app-danger' : 'bg-app-success'}" style="width: ${Math.min((item.actual / (item.target || 1)) * 100, 100)}%"></div>
+                </div>
+                <span id="expense-diff-${item.id}" class="text-xs font-bold whitespace-nowrap ${isOver ? 'text-app-danger' : 'text-app-success'}">
+                  残枠: ${formatDiff(diff)}
+                </span>
+              </div>
+            </div>
+          `;
+        });
+
+        if (items.length === 0) {
+           html = `<p class="text-sm text-center text-gray-400 py-4">項目がありません</p>`;
+        }
+
+        container.innerHTML = html;
+        lucide.createIcons();
+      },
+
+      updateExpenseItemUI(id, item) {
+        const isOver = item.actual > item.target;
+        const diff = item.target - item.actual;
+        
+        const diffEl = document.getElementById(`expense-diff-${id}`);
+        const barEl = document.getElementById(`expense-bar-${id}`);
+        const actualInputEl = document.getElementById(`expense-actual-${id}`);
+        
+        if (diffEl) {
+          diffEl.textContent = `残枠: ${formatDiff(diff)}`;
+          diffEl.className = `text-xs font-bold whitespace-nowrap ${isOver ? 'text-app-danger' : 'text-app-success'}`;
+        }
+        
+        if (barEl) {
+          barEl.style.width = `${Math.min((item.actual / (item.target || 1)) * 100, 100)}%`;
+          barEl.className = `h-full rounded-full transition-all duration-500 ${isOver ? 'bg-app-danger' : 'bg-app-success'}`;
+        }
+
+        if (actualInputEl) {
+           if (isOver) {
+               actualInputEl.classList.add('border-app-danger/30', 'text-app-danger');
+               actualInputEl.classList.remove('border-gray-100');
+           } else {
+               actualInputEl.classList.remove('border-app-danger/30', 'text-app-danger');
+               actualInputEl.classList.add('border-gray-100');
+           }
+        }
+      }
+    };
+
+    // Initialize App on DOM load
+    document.addEventListener('DOMContentLoaded', () => {
+      App.init();
+    });
+  </script>
+</body>
+</html>
