@@ -320,6 +320,9 @@
       }
     });
 
+    // サブスクの月あたり金額（年額は12で割って四捨五入）
+    const subMonthly = (e) => { const a = Number(e && e.amount) || 0; return e && e.period === 'year' ? Math.round(a / 12) : a; };
+
     // 1か月分のデータの形を整える（読み込んだファイルや古いデータ用）
     const cleanMonth = (m) => {
       const num = (v) => Math.max(0, Math.round(Number(v) || 0));
@@ -329,7 +332,7 @@
         id: str(e && e.id) || generateId(), name: str(e && e.name), target: num(e && e.target), actual: num(e && e.actual)
       }));
       const sub = (list) => (Array.isArray(list) ? list : []).map(e => ({
-        id: str(e && e.id) || generateId(), name: str(e && e.name), amount: num(e && e.amount)
+        id: str(e && e.id) || generateId(), name: str(e && e.name), amount: num(e && e.amount), period: e && e.period === 'year' ? 'year' : 'month'
       }));
       const jobs = (Array.isArray(m && m.jobs) ? m.jobs : []).map(j => ({
         id: str(j && j.id) || generateId(), name: str(j && j.name), amount: num(j && j.amount),
@@ -480,7 +483,7 @@
         }), { target: 0, actual: 0 });
         const fixed = calc(m.expenses.fixed);
         const variable = calc(m.expenses.variable);
-        const totalSub = (m.expenses.subscription || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        const totalSub = (m.expenses.subscription || []).reduce((sum, e) => sum + subMonthly(e), 0);
         const totalActualExpenses = fixed.actual + variable.actual + totalSub;
         const totalTargetExpenses = fixed.target + variable.target + totalSub;
         return {
@@ -568,7 +571,7 @@
 
       // --- サブスク（金額は1つだけ。目標＝実績として扱う） ---
       addSubscription() {
-        const item = { id: generateId(), name: '', amount: 0 };
+        const item = { id: generateId(), name: '', amount: 0, period: 'month' };
         this.month.expenses.subscription.push(item);
         this.save();
         this.renderSubscriptionList();
@@ -594,9 +597,18 @@
       updateSubscription(id, field, value) {
         const item = this.month.expenses.subscription.find(e => e.id === id);
         if (!item) return;
-        item[field] = field === 'name' ? value : parseAmount(value);
+        if (field === 'period') item.period = value === 'year' ? 'year' : 'month';
+        else item[field] = field === 'name' ? value : parseAmount(value);
         this.save();
+        if (field === 'period') this.renderSubscriptionList();
+        else this.updateSubNote(item);
         this.updateSummaryUI();
+      },
+
+      updateSubNote(item) {
+        const el = $(`sub-note-${item.id}`);
+        if (!el) return;
+        el.textContent = item.period === 'year' ? `月あたり ${formatCurrency(subMonthly(item))}` : '';
       },
 
       renderSubscriptionList() {
@@ -606,17 +618,24 @@
           container.innerHTML = '<p class="text-sm text-center text-gray-400 py-3">項目がありません</p>';
           return;
         }
+        const seg = (item, val, label) => `<button onclick="App.updateSubscription('${item.id}', 'period', '${val}')" class="h-7 px-2.5 text-xs font-semibold rounded-full transition-colors ${item.period === val ? 'bg-app-accent text-white' : 'text-gray-500'}" aria-pressed="${item.period === val}">${label}</button>`;
         container.innerHTML = items.map(item => `
-          <div id="sub-container-${item.id}" class="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100/50">
-            <input type="text" value="${escapeHTML(item.name)}" oninput="App.updateSubscription('${item.id}', 'name', this.value)" placeholder="サービス名" maxlength="30" class="font-medium text-sm text-app-text bg-transparent focus:outline-none flex-1 min-w-0">
-            <div class="flex items-center gap-1.5">
-              <div class="flex-1 relative min-w-0">
-                <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">金額</span>
-                <input type="text" inputmode="numeric" value="${formatNumber(item.amount)}" oninput="App.updateSubscription('${item.id}', 'amount', this.value)" onblur="App.formatField(this)" placeholder="0" class="w-full h-11 bg-white rounded-lg pl-10 pr-2 text-right text-sm font-medium num border border-gray-100 focus:outline-none focus:ring-2 focus:ring-app-accent/20">
+          <div id="sub-container-${item.id}" class="flex flex-col gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100/50">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input type="text" value="${escapeHTML(item.name)}" oninput="App.updateSubscription('${item.id}', 'name', this.value)" placeholder="サービス名" maxlength="30" class="font-medium text-sm text-app-text bg-transparent focus:outline-none flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <div class="flex-1 relative min-w-0">
+                  <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">${item.period === 'year' ? '年額' : '月額'}</span>
+                  <input type="text" inputmode="numeric" value="${formatNumber(item.amount)}" oninput="App.updateSubscription('${item.id}', 'amount', this.value)" onblur="App.formatField(this)" placeholder="0" class="w-full h-11 bg-white rounded-lg pl-10 pr-2 text-right text-sm font-medium num border border-gray-100 focus:outline-none focus:ring-2 focus:ring-app-accent/20">
+                </div>
+                <button onclick="App.deleteSubscription('${item.id}')" class="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-app-danger transition-colors rounded-lg flex-shrink-0" aria-label="項目を削除">
+                  <svg class="ic"><use href="#i-trash"/></svg>
+                </button>
               </div>
-              <button onclick="App.deleteSubscription('${item.id}')" class="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-app-danger transition-colors rounded-lg flex-shrink-0" aria-label="項目を削除">
-                <svg class="ic"><use href="#i-trash"/></svg>
-              </button>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex bg-white rounded-full p-0.5 border border-gray-100" role="group" aria-label="支払い周期">${seg(item, 'month', '月額')}${seg(item, 'year', '年額')}</div>
+              <span id="sub-note-${item.id}" class="text-[11px] text-gray-500 num">${item.period === 'year' ? `月あたり ${formatCurrency(subMonthly(item))}` : ''}</span>
             </div>
           </div>`).join('');
       },
@@ -794,7 +813,7 @@
         const items = [
           ...x.fixed.map(e => ({ name: e.name, value: Number(e.actual) || 0 })),
           ...x.variable.map(e => ({ name: e.name, value: Number(e.actual) || 0 })),
-          ...(x.subscription || []).map(e => ({ name: e.name, value: Number(e.amount) || 0 }))
+          ...(x.subscription || []).map(e => ({ name: e.name, value: subMonthly(e) }))
         ].map(e => ({ name: (e.name || '').trim() || '(無題)', value: e.value }))
           .filter(e => e.value > 0)
           .sort((a, b) => b.value - a.value);
