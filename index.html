@@ -60,6 +60,7 @@
     <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></symbol>
     <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
     <symbol id="i-pie" viewBox="0 0 24 24"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></symbol>
     <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
@@ -137,7 +138,7 @@
         </div>
         <div>
           <h2 class="text-base font-semibold text-app-text tracking-tight">支出の内訳</h2>
-          <p class="text-[11px] text-gray-500 mt-0.5">固定費・変動費の実績の割合</p>
+          <p class="text-[11px] text-gray-500 mt-0.5">固定費・変動費・サブスクの割合</p>
         </div>
       </div>
       <div id="pie-empty" class="hidden text-center text-xs text-gray-400 py-6">支出の実績を入力すると内訳が表示されます</div>
@@ -204,6 +205,24 @@
           </button>
         </div>
         <div id="variable-expenses-list" class="space-y-2"></div>
+      </div>
+
+      <div class="bento-card flex-1">
+        <div class="flex justify-between items-center mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-xl bg-app-bg flex items-center justify-center text-app-text">
+              <svg class="ic"><use href="#i-repeat"/></svg>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-app-text tracking-tight">サブスク</h2>
+              <p id="subscription-total-display" class="text-[11px] text-gray-500 mt-0.5 num">合計: ¥0</p>
+            </div>
+          </div>
+          <button onclick="App.addSubscription()" class="h-11 md:h-9 px-4 rounded-full bg-app-accent/5 text-app-accent text-sm font-medium hover:bg-app-accent/10 transition-colors flex items-center justify-center gap-1">
+            <svg class="ic"><use href="#i-plus"/></svg><span>追加</span>
+          </button>
+        </div>
+        <div id="subscription-list" class="space-y-2"></div>
       </div>
     </div>
   </div>
@@ -296,7 +315,8 @@
           { id: generateId(), name: '食費', target: 0, actual: 0 },
           { id: generateId(), name: '交際費', target: 0, actual: 0 },
           { id: generateId(), name: '日用品', target: 0, actual: 0 }
-        ]
+        ],
+        subscription: []
       }
     });
 
@@ -308,12 +328,15 @@
       const exp = (list) => (Array.isArray(list) ? list : []).map(e => ({
         id: str(e && e.id) || generateId(), name: str(e && e.name), target: num(e && e.target), actual: num(e && e.actual)
       }));
+      const sub = (list) => (Array.isArray(list) ? list : []).map(e => ({
+        id: str(e && e.id) || generateId(), name: str(e && e.name), amount: num(e && e.amount)
+      }));
       const jobs = (Array.isArray(m && m.jobs) ? m.jobs : []).map(j => ({
         id: str(j && j.id) || generateId(), name: str(j && j.name), amount: num(j && j.amount),
         startDate: date(j && j.startDate), endDate: date(j && j.endDate)
       }));
       if (jobs.length === 0) jobs.push({ id: generateId(), name: 'メインの仕事', amount: 0, startDate: '', endDate: '' });
-      return { jobs, expenses: { fixed: exp(m && m.expenses && m.expenses.fixed), variable: exp(m && m.expenses && m.expenses.variable) } };
+      return { jobs, expenses: { fixed: exp(m && m.expenses && m.expenses.fixed), variable: exp(m && m.expenses && m.expenses.variable), subscription: sub(m && m.expenses && m.expenses.subscription) } };
     };
 
     const cleanData = (d) => {
@@ -387,7 +410,8 @@
             jobs: base.jobs.map(j => ({ ...j, id: generateId() })),
             expenses: {
               fixed: base.expenses.fixed.map(e => ({ ...e, id: generateId(), actual: 0 })),
-              variable: base.expenses.variable.map(e => ({ ...e, id: generateId(), actual: 0 }))
+              variable: base.expenses.variable.map(e => ({ ...e, id: generateId(), actual: 0 })),
+              subscription: (base.expenses.subscription || []).map(e => ({ ...e, id: generateId() }))
             }
           };
         }
@@ -400,7 +424,8 @@
           jobs,
           expenses: {
             fixed: prev.expenses.fixed.map(e => ({ ...e, id: generateId(), actual: 0 })),
-            variable: prev.expenses.variable.map(e => ({ ...e, id: generateId(), actual: 0 }))
+            variable: prev.expenses.variable.map(e => ({ ...e, id: generateId(), actual: 0 })),
+            subscription: (prev.expenses.subscription || []).map(e => ({ ...e, id: generateId() }))
           }
         };
       },
@@ -455,12 +480,14 @@
         }), { target: 0, actual: 0 });
         const fixed = calc(m.expenses.fixed);
         const variable = calc(m.expenses.variable);
-        const totalActualExpenses = fixed.actual + variable.actual;
-        const totalTargetExpenses = fixed.target + variable.target;
+        const totalSub = (m.expenses.subscription || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        const totalActualExpenses = fixed.actual + variable.actual + totalSub;
+        const totalTargetExpenses = fixed.target + variable.target + totalSub;
         return {
           totalIncome,
           totalFixedActual: fixed.actual,
           totalVarActual: variable.actual,
+          totalSubscription: totalSub,
           totalActualExpenses,
           totalTargetExpenses,
           balance: totalIncome - totalActualExpenses,
@@ -537,6 +564,61 @@
         exp[field] = field === 'name' ? value : parseAmount(value);
         this.save();
         this.updateExpenseItemUI(id, exp);
+      },
+
+      // --- サブスク（金額は1つだけ。目標＝実績として扱う） ---
+      addSubscription() {
+        const item = { id: generateId(), name: '', amount: 0 };
+        this.month.expenses.subscription.push(item);
+        this.save();
+        this.renderSubscriptionList();
+        this.updateSummaryUI();
+        const input = document.querySelector(`#sub-container-${item.id} input[type=text]`);
+        if (input) input.focus();
+      },
+
+      deleteSubscription(id) {
+        const m = this.month;
+        const item = m.expenses.subscription.find(e => e.id === id);
+        if (!item) return;
+        const run = () => {
+          m.expenses.subscription = m.expenses.subscription.filter(e => e.id !== id);
+          this.save();
+          this.renderSubscriptionList();
+          this.updateSummaryUI();
+        };
+        if (!item.name && !item.amount) return run();
+        this.confirm('項目を削除しますか？', `「${item.name || '分類名なし'}」を${monthLabel(this.viewKey)}の記録から削除します。`, run);
+      },
+
+      updateSubscription(id, field, value) {
+        const item = this.month.expenses.subscription.find(e => e.id === id);
+        if (!item) return;
+        item[field] = field === 'name' ? value : parseAmount(value);
+        this.save();
+        this.updateSummaryUI();
+      },
+
+      renderSubscriptionList() {
+        const container = $('subscription-list');
+        const items = this.month.expenses.subscription;
+        if (items.length === 0) {
+          container.innerHTML = '<p class="text-sm text-center text-gray-400 py-3">項目がありません</p>';
+          return;
+        }
+        container.innerHTML = items.map(item => `
+          <div id="sub-container-${item.id}" class="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100/50">
+            <input type="text" value="${escapeHTML(item.name)}" oninput="App.updateSubscription('${item.id}', 'name', this.value)" placeholder="サービス名" maxlength="30" class="font-medium text-sm text-app-text bg-transparent focus:outline-none flex-1 min-w-0">
+            <div class="flex items-center gap-1.5">
+              <div class="flex-1 relative min-w-0">
+                <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">金額</span>
+                <input type="text" inputmode="numeric" value="${formatNumber(item.amount)}" oninput="App.updateSubscription('${item.id}', 'amount', this.value)" onblur="App.formatField(this)" placeholder="0" class="w-full h-11 bg-white rounded-lg pl-10 pr-2 text-right text-sm font-medium num border border-gray-100 focus:outline-none focus:ring-2 focus:ring-app-accent/20">
+              </div>
+              <button onclick="App.deleteSubscription('${item.id}')" class="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-app-danger transition-colors rounded-lg flex-shrink-0" aria-label="項目を削除">
+                <svg class="ic"><use href="#i-trash"/></svg>
+              </button>
+            </div>
+          </div>`).join('');
       },
 
       // 金額欄：入力中はそのまま、欄を離れたらカンマ区切りに整える
@@ -650,6 +732,7 @@
         this.renderJobDetails();
         this.renderExpenseList('fixed');
         this.renderExpenseList('variable');
+        this.renderSubscriptionList();
         this.updateSummaryUI();
       },
 
@@ -700,14 +783,19 @@
 
         $('fixed-total-display').textContent = `合計: ${formatCurrency(totals.totalFixedActual)}`;
         $('variable-total-display').textContent = `合計: ${formatCurrency(totals.totalVarActual)}`;
+        $('subscription-total-display').textContent = `合計: ${formatCurrency(totals.totalSubscription)}`;
         this.renderPie();
       },
 
       // 支出の内訳（円グラフ）：実績が入っている項目を1スライスにする
       renderPie() {
         const PALETTE = ['#0F382C', '#2F7D62', '#6BB59A', '#B7D9CB', '#8A6F3E', '#C9A76B', '#4A6A8A', '#9DB4CC', '#A35C5C', '#D9A5A5', '#6B6B70', '#C4C4C8'];
-        const items = [...this.month.expenses.fixed, ...this.month.expenses.variable]
-          .map(e => ({ name: (e.name || '').trim() || '(無題)', value: Number(e.actual) || 0 }))
+        const x = this.month.expenses;
+        const items = [
+          ...x.fixed.map(e => ({ name: e.name, value: Number(e.actual) || 0 })),
+          ...x.variable.map(e => ({ name: e.name, value: Number(e.actual) || 0 })),
+          ...(x.subscription || []).map(e => ({ name: e.name, value: Number(e.amount) || 0 }))
+        ].map(e => ({ name: (e.name || '').trim() || '(無題)', value: e.value }))
           .filter(e => e.value > 0)
           .sort((a, b) => b.value - a.value);
         const total = items.reduce((s, e) => s + e.value, 0);
