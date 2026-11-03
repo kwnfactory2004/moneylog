@@ -226,6 +226,35 @@
         <div id="subscription-list" class="space-y-2"></div>
       </div>
     </div>
+
+    <!-- 4. 毎月の自動入力 -->
+    <div class="bento-card md:col-span-12">
+      <div class="flex items-center gap-2 mb-1">
+        <div class="w-8 h-8 rounded-xl bg-app-bg flex items-center justify-center text-app-text">
+          <svg class="ic"><use href="#i-repeat"/></svg>
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-app-text tracking-tight">毎月の自動入力</h2>
+          <p class="text-[11px] text-gray-500 mt-0.5">家賃・サブスクなど毎月同じ支出を、自動で記録に入れます</p>
+        </div>
+      </div>
+      <p class="text-[11px] text-gray-400 mb-3 leading-relaxed">日付になるとアプリを開いたときに入ります（最大12か月前まで）。すでに入った月の金額は、あとから変えても変わりません。</p>
+      <div class="grid grid-cols-2 sm:grid-cols-6 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100/50 mb-3">
+        <input id="rc-name" type="text" maxlength="30" placeholder="名前（例：家賃）" class="col-span-2 sm:col-span-2 h-11 bg-white rounded-lg px-3 text-sm border border-gray-100 min-w-0">
+        <input id="rc-amount" type="text" inputmode="numeric" placeholder="金額" onblur="App.formatField(this)" class="h-11 bg-white rounded-lg px-3 text-right text-sm num border border-gray-100 min-w-0">
+        <select id="rc-kind" class="h-11 bg-white rounded-lg px-2 text-sm border border-gray-100 min-w-0">
+          <option value="fixed">固定費</option>
+          <option value="subscription">サブスク</option>
+        </select>
+        <div class="flex items-center gap-1 min-w-0">
+          <span class="text-[11px] text-gray-500 flex-shrink-0">毎月</span>
+          <input id="rc-day" type="text" inputmode="numeric" value="1" maxlength="2" class="w-full h-11 bg-white rounded-lg px-2 text-right text-sm num border border-gray-100 min-w-0">
+          <span class="text-[11px] text-gray-500 flex-shrink-0">日</span>
+        </div>
+        <button onclick="App.addRecurring()" class="h-11 rounded-lg bg-app-accent text-white text-sm font-semibold col-span-2 sm:col-span-1">登録</button>
+      </div>
+      <div id="recurring-list" class="space-y-2"></div>
+    </div>
   </div>
 
   <!-- 確認ダイアログ -->
@@ -256,7 +285,20 @@
         <svg class="ic"><use href="#i-upload"/></svg>ファイルから読み込む
         <input id="import-file" type="file" accept=".json,application/json" class="hidden" onchange="App.importData(this)">
       </label>
-      <p class="text-[11px] text-gray-400 mt-2">読み込むと、今のデータはファイルの内容に置き換わります。</p>
+      <p class="text-[11px] text-gray-400 mt-2">読み込むと、今のデータはファイルの内容に置き換わります（毎月の自動入力の設定も含みます）。</p>
+      <div class="border-t border-gray-100 mt-4 pt-3">
+        <p class="text-xs font-semibold text-app-text">表計算ソフト用（CSV）</p>
+        <div class="flex gap-2 mt-2">
+          <select id="csv-range" class="flex-1 min-w-0 h-11 bg-gray-100 rounded-xl px-3 text-sm text-app-text" aria-label="書き出す期間">
+            <option value="month">表示中の月</option>
+            <option value="year">表示中の年</option>
+            <option value="all">全期間</option>
+          </select>
+          <button onclick="App.exportCsv()" class="h-11 px-4 rounded-xl bg-gray-100 text-app-text text-sm font-semibold flex items-center justify-center gap-2 flex-shrink-0">
+            <svg class="ic"><use href="#i-download"/></svg>CSV
+          </button>
+        </div>
+      </div>
       <button onclick="App.closeBackup()" class="w-full h-10 mt-3 rounded-xl text-gray-500 text-sm font-medium">閉じる</button>
     </div>
   </div>
@@ -306,6 +348,7 @@
 
     const defaultMonth = () => ({
       jobs: [{ id: generateId(), name: 'メインの仕事', amount: 0, startDate: '', endDate: '' }],
+      applied: [],
       expenses: {
         fixed: [
           { id: generateId(), name: '家賃', target: 0, actual: 0 },
@@ -324,35 +367,62 @@
     // サブスクの月あたり金額（年額は12で割って四捨五入）
     const subMonthly = (e) => { const a = Number(e && e.amount) || 0; return e && e.period === 'year' ? Math.round(a / 12) : a; };
 
+    const MAX_ITEMS = 500;            // 1か月あたりの項目数の上限（壊れたファイル対策）
+    const MAX_MONTHS = 1200;          // 読み込む月数の上限
+    const MAX_RECURRING = 100;        // 毎月の自動入力の登録数の上限
+    const RECUR_MAX_MONTHS = 12;      // 自動入力でさかのぼる最大月数（今月を含む）
+    const MAX_IMPORT_BYTES = 5 * 1024 * 1024; // 読み込むファイルの大きさの上限（5MB）
+    const cNum = (v) => Math.max(0, Math.round(Number(v) || 0));
+    const cStr = (v) => (typeof v === 'string' ? v.slice(0, 200) : '');
+    const lastDayOf = (key) => { const [y, m] = key.split('-').map(Number); return new Date(y, m, 0).getDate(); };
+
+    // 毎月の自動入力（固定費・サブスク）の設定を整える
+    const cleanRecurring = (list) => (Array.isArray(list) ? list : []).slice(0, MAX_RECURRING).map(r => {
+      const day = Math.round(Number(r && r.day));
+      return {
+        id: cStr(r && r.id) || generateId(),
+        name: cStr(r && r.name).slice(0, 30),
+        amount: Math.min(cNum(r && r.amount), 999999999),
+        kind: r && r.kind === 'subscription' ? 'subscription' : 'fixed',
+        day: day >= 1 && day <= 31 ? day : 1,
+        start: r && /^\d{4}-(0[1-9]|1[0-2])$/.test(r.start) ? r.start : monthKey()
+      };
+    });
+
     // 1か月分のデータの形を整える（読み込んだファイルや古いデータ用）
     const cleanMonth = (m) => {
-      const num = (v) => Math.max(0, Math.round(Number(v) || 0));
-      const str = (v) => (typeof v === 'string' ? v : '');
+      const num = cNum, str = cStr;
       const date = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
-      const exp = (list) => (Array.isArray(list) ? list : []).map(e => ({
-        id: str(e && e.id) || generateId(), name: str(e && e.name), target: num(e && e.target), actual: num(e && e.actual)
+      const arr = (list) => (Array.isArray(list) ? list.slice(0, MAX_ITEMS) : []);
+      const exp = (list) => arr(list).map(e => ({
+        id: str(e && e.id) || generateId(), name: str(e && e.name), target: num(e && e.target), actual: num(e && e.actual),
+        ...(str(e && e.rid) ? { rid: str(e.rid) } : {})
       }));
-      const sub = (list) => (Array.isArray(list) ? list : []).map(e => ({
-        id: str(e && e.id) || generateId(), name: str(e && e.name), amount: num(e && e.amount), period: e && e.period === 'year' ? 'year' : 'month'
+      const sub = (list) => arr(list).map(e => ({
+        id: str(e && e.id) || generateId(), name: str(e && e.name), amount: num(e && e.amount), period: e && e.period === 'year' ? 'year' : 'month',
+        ...(str(e && e.rid) ? { rid: str(e.rid) } : {})
       }));
-      const jobs = (Array.isArray(m && m.jobs) ? m.jobs : []).map(j => ({
+      const applied = arr(m && m.applied).map(str).filter(Boolean);
+      const jobs = arr(m && m.jobs).map(j => ({
         id: str(j && j.id) || generateId(), name: str(j && j.name), amount: num(j && j.amount),
         startDate: date(j && j.startDate), endDate: date(j && j.endDate)
       }));
       if (jobs.length === 0) jobs.push({ id: generateId(), name: 'メインの仕事', amount: 0, startDate: '', endDate: '' });
-      return { jobs, expenses: { fixed: exp(m && m.expenses && m.expenses.fixed), variable: exp(m && m.expenses && m.expenses.variable), subscription: sub(m && m.expenses && m.expenses.subscription) } };
+      return { jobs, applied, expenses: { fixed: exp(m && m.expenses && m.expenses.fixed), variable: exp(m && m.expenses && m.expenses.variable), subscription: sub(m && m.expenses && m.expenses.subscription) } };
     };
 
     const cleanData = (d) => {
       if (!d || typeof d !== 'object' || !d.months || typeof d.months !== 'object') return null;
       const months = {};
-      Object.keys(d.months).forEach(k => { if (/^\d{4}-\d{2}$/.test(k)) months[k] = cleanMonth(d.months[k]); });
-      return { version: 2, months };
+      const keys = Object.keys(d.months);
+      if (keys.length > MAX_MONTHS) return null;
+      keys.forEach(k => { if (/^\d{4}-\d{2}$/.test(k)) months[k] = cleanMonth(d.months[k]); });
+      return { version: 2, months, recurring: cleanRecurring(d.recurring) };
     };
 
     // --- Application Logic ---
     const App = {
-      data: { version: 2, months: {} },
+      data: { version: 2, months: {}, recurring: [] },
       viewKey: monthKey(),
       followCurrent: true,
       activeJobId: null,
@@ -371,6 +441,12 @@
           if (e.key === STORAGE_KEY) { this.load(); this.renderAll(); }
         });
 
+        // 毎月の自動入力：月が変わって戻ってきたときも確認する
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible' && this.applyRecurring()) this.renderAll();
+        });
+
+        this.applyRecurring();
         this.renderAll();
       },
 
@@ -378,7 +454,7 @@
         let data = null;
         try { data = cleanData(JSON.parse(localStorage.getItem(STORAGE_KEY))); } catch (e) {}
         if (!data) {
-          data = { version: 2, months: {} };
+          data = { version: 2, months: {}, recurring: [] };
           // 以前の形式のデータがあれば今月のデータとして引き継ぐ（元のデータは消さずに残す）
           try {
             const old = JSON.parse(localStorage.getItem(OLD_KEY));
@@ -405,6 +481,8 @@
 
       // 記録がない月は、前の月から費目・目標・仕事を引き継いだ下書きを作る（実績は0）
       buildMonth(key) {
+        // 自動入力で入った行（rid付き）は引き継がない（自動入力が改めて入れるため、二重にならない）
+        const manual = (e) => !e.rid;
         const prevKey = this.latestMonthBefore(key);
         if (!prevKey) {
           const nextKey = Object.keys(this.data.months).filter(k => k > key).sort()[0];
@@ -412,10 +490,11 @@
           const base = this.data.months[nextKey];
           return {
             jobs: base.jobs.map(j => ({ ...j, id: generateId() })),
+            applied: [],
             expenses: {
-              fixed: base.expenses.fixed.map(e => ({ ...e, id: generateId(), actual: 0 })),
-              variable: base.expenses.variable.map(e => ({ ...e, id: generateId(), actual: 0 })),
-              subscription: (base.expenses.subscription || []).map(e => ({ ...e, id: generateId() }))
+              fixed: base.expenses.fixed.filter(manual).map(e => ({ ...e, id: generateId(), actual: 0 })),
+              variable: base.expenses.variable.filter(manual).map(e => ({ ...e, id: generateId(), actual: 0 })),
+              subscription: (base.expenses.subscription || []).filter(manual).map(e => ({ ...e, id: generateId() }))
             }
           };
         }
@@ -426,10 +505,11 @@
         if (jobs.length === 0) jobs = [{ id: generateId(), name: 'メインの仕事', amount: 0, startDate: '', endDate: '' }];
         return {
           jobs,
+          applied: [],
           expenses: {
-            fixed: prev.expenses.fixed.map(e => ({ ...e, id: generateId(), actual: 0 })),
-            variable: prev.expenses.variable.map(e => ({ ...e, id: generateId(), actual: 0 })),
-            subscription: (prev.expenses.subscription || []).map(e => ({ ...e, id: generateId() }))
+            fixed: prev.expenses.fixed.filter(manual).map(e => ({ ...e, id: generateId(), actual: 0 })),
+            variable: prev.expenses.variable.filter(manual).map(e => ({ ...e, id: generateId(), actual: 0 })),
+            subscription: (prev.expenses.subscription || []).filter(manual).map(e => ({ ...e, id: generateId() }))
           }
         };
       },
@@ -665,6 +745,119 @@
         $('confirm-modal').classList.add('hidden');
       },
 
+      // --- 毎月の自動入力 ---
+      // 仕組み：各月に「入れ済みの登録ID」(applied) を持たせ、入っていない月だけ追加する。
+      // 追加した行には登録ID(rid)を付ける。日付になっていない今月分は、その日が来てから入る。
+      // 月末が無い月（31日など）は月末に寄せる。さかのぼるのは最大 RECUR_MAX_MONTHS か月。
+      applyRecurring() {
+        const list = this.data.recurring || [];
+        if (!list.length) return false;
+        const now = new Date();
+        const cur = monthKey(now), today = now.getDate();
+        let changed = false;
+        for (let k = shiftKey(cur, -(RECUR_MAX_MONTHS - 1)); k <= cur; k = shiftKey(k, 1)) {
+          const done = (this.data.months[k] && this.data.months[k].applied) || [];
+          const todo = list.filter(r => r.amount > 0 && r.start <= k && !done.includes(r.id) &&
+            (k < cur || Math.min(r.day, lastDayOf(k)) <= today));
+          if (!todo.length) continue;
+          if (!this.data.months[k]) this.data.months[k] = this.buildMonth(k);
+          const m = this.data.months[k];
+          if (!Array.isArray(m.applied)) m.applied = [];
+          todo.forEach(r => {
+            const target = r.kind === 'subscription' ? m.expenses.subscription : m.expenses.fixed;
+            const nm = r.name.trim();
+            const same = nm ? target.find(e => !e.rid && (e.name || '').trim() === nm) : null;
+            if (same) {
+              // 同じ名前の項目が手入力ですでにある：未入力なら金額を入れる。入力済みなら何もしない（二重にしない）
+              if (r.kind === 'subscription') { if (!same.amount) { same.amount = r.amount; same.period = 'month'; same.rid = r.id; } }
+              else if (!same.actual) { same.actual = r.amount; if (!same.target) same.target = r.amount; same.rid = r.id; }
+            } else if (r.kind === 'subscription') {
+              target.push({ id: generateId(), name: r.name, amount: r.amount, period: 'month', rid: r.id });
+            } else {
+              target.push({ id: generateId(), name: r.name, target: r.amount, actual: r.amount, rid: r.id });
+            }
+            m.applied.push(r.id);
+          });
+          changed = true;
+        }
+        if (changed) { this._draft = null; this.persist(); }
+        return changed;
+      },
+
+      addRecurring() {
+        const name = $('rc-name').value.trim();
+        const amount = parseAmount($('rc-amount').value);
+        const day = parseAmount($('rc-day').value);
+        if (!name) { this.toast('名前を入れてください'); return; }
+        if (!amount) { this.toast('金額を入れてください'); return; }
+        if (day < 1 || day > 31) { this.toast('日付は1〜31で入れてください'); return; }
+        if (this.data.recurring.length >= MAX_RECURRING) { this.toast('登録できる数の上限です'); return; }
+        const r = { id: generateId(), name: name.slice(0, 30), amount, kind: $('rc-kind').value === 'subscription' ? 'subscription' : 'fixed', day, start: monthKey() };
+        this.data.recurring.push(r);
+        const added = this.applyRecurring();
+        this.persist();
+        $('rc-name').value = ''; $('rc-amount').value = ''; $('rc-day').value = '1';
+        this.renderRecurring();
+        if (added) this.renderAll();
+        this.toast(added ? '登録して、今月の記録に入れました' : '登録しました（日付になったら自動で入ります）');
+      },
+
+      updateRecurring(id, field, value) {
+        const r = this.data.recurring.find(x => x.id === id);
+        if (!r) return;
+        if (field === 'name') r.name = String(value).slice(0, 30);
+        else if (field === 'amount') r.amount = parseAmount(value);
+        else if (field === 'day') { const d = parseAmount(value); if (d >= 1 && d <= 31) r.day = d; }
+        else if (field === 'kind') r.kind = value === 'subscription' ? 'subscription' : 'fixed';
+        else if (field === 'start') { if (/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) r.start = value; }
+        const added = this.applyRecurring();
+        this.persist();
+        this.renderRecurring();
+        if (added) this.renderAll();
+      },
+
+      deleteRecurring(id) {
+        const r = this.data.recurring.find(x => x.id === id);
+        if (!r) return;
+        this.confirm('自動入力をやめますか？', `「${r.name || '名前なし'}」の登録を消します。すでに記録に入った分はそのまま残ります。`, () => {
+          this.data.recurring = this.data.recurring.filter(x => x.id !== id);
+          // 記録に入った行は普通の行に戻す（印を外す）
+          Object.keys(this.data.months).forEach(k => {
+            const m = this.data.months[k];
+            ['fixed', 'variable', 'subscription'].forEach(t => (m.expenses[t] || []).forEach(e => { if (e.rid === id) delete e.rid; }));
+            m.applied = (m.applied || []).filter(x => x !== id);
+          });
+          this._draft = null;
+          this.persist();
+          this.renderRecurring();
+          this.renderAll();
+        });
+      },
+
+      renderRecurring() {
+        const el = $('recurring-list');
+        const list = this.data.recurring;
+        if (!list.length) { el.innerHTML = '<p class="text-sm text-center text-gray-400 py-3">登録はまだありません</p>'; return; }
+        el.innerHTML = list.map(r => `
+          <div class="grid grid-cols-2 sm:grid-cols-6 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100/50">
+            <input type="text" value="${escapeHTML(r.name)}" maxlength="30" onchange="App.updateRecurring('${escapeHTML(r.id)}', 'name', this.value)" placeholder="名前" class="col-span-2 sm:col-span-2 h-11 bg-white rounded-lg px-3 text-sm border border-gray-100 min-w-0" aria-label="名前">
+            <input type="text" inputmode="numeric" value="${formatNumber(r.amount)}" onchange="App.updateRecurring('${escapeHTML(r.id)}', 'amount', this.value)" placeholder="金額" class="h-11 bg-white rounded-lg px-3 text-right text-sm num border border-gray-100 min-w-0" aria-label="金額">
+            <select onchange="App.updateRecurring('${escapeHTML(r.id)}', 'kind', this.value)" class="h-11 bg-white rounded-lg px-2 text-sm border border-gray-100 min-w-0" aria-label="種類">
+              <option value="fixed" ${r.kind === 'fixed' ? 'selected' : ''}>固定費</option>
+              <option value="subscription" ${r.kind === 'subscription' ? 'selected' : ''}>サブスク</option>
+            </select>
+            <div class="flex items-center gap-1 min-w-0">
+              <span class="text-[11px] text-gray-500 flex-shrink-0">毎月</span>
+              <input type="text" inputmode="numeric" maxlength="2" value="${r.day}" onchange="App.updateRecurring('${escapeHTML(r.id)}', 'day', this.value)" class="w-full h-11 bg-white rounded-lg px-2 text-right text-sm num border border-gray-100 min-w-0" aria-label="毎月の日付">
+              <span class="text-[11px] text-gray-500 flex-shrink-0">日</span>
+            </div>
+            <div class="flex items-center gap-1 min-w-0 col-span-2 sm:col-span-1">
+              <input type="month" value="${escapeHTML(r.start)}" onchange="App.updateRecurring('${escapeHTML(r.id)}', 'start', this.value)" class="flex-1 h-11 bg-white rounded-lg px-2 text-[13px] border border-gray-100 min-w-0" aria-label="いつから">
+              <button onclick="App.deleteRecurring('${escapeHTML(r.id)}')" class="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-app-danger transition-colors rounded-lg flex-shrink-0" aria-label="登録を削除"><svg class="ic"><use href="#i-trash"/></svg></button>
+            </div>
+          </div>`).join('');
+      },
+
       // --- バックアップ ---
       openBackup() {
         let last = null;
@@ -682,19 +875,68 @@
       },
       closeBackup() { $('backup-modal').classList.add('hidden'); },
 
-      exportData() {
-        const now = new Date();
-        const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-        const payload = { app: 'MoneyLog', version: 2, exportedAt: now.toISOString(), months: this.data.months };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `moneylog-backup-${stamp}.json`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+      },
+
+      // --- CSV書き出し ---
+      // 表計算ソフトで式として動いてしまわないよう、= + - @ などで始まる文字には ' を付ける
+      csvCell(v) {
+        let t = String(v == null ? '' : v);
+        if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+        return '"' + t.replace(/"/g, '""') + '"';
+      },
+
+      buildCsv(keys) {
+        const rows = [['年月', '種類', '項目名', '金額', '目標額', '支払い周期', '期間の開始', '期間の終了']];
+        keys.forEach(k => {
+          const m = this.data.months[k];
+          if (!m) return;
+          const { start, end } = monthRange(k);
+          m.jobs.forEach(j => {
+            if (j.startDate && j.startDate > end) return;
+            if (j.endDate && j.endDate < start) return;
+            if (!j.name && !j.amount) return;
+            rows.push([k, '収入', j.name, j.amount, '', '', j.startDate, j.endDate]);
+          });
+          [['fixed', '固定費'], ['variable', '変動費']].forEach(([t, label]) => {
+            m.expenses[t].forEach(e => {
+              if (!e.name && !e.actual && !e.target) return;
+              rows.push([k, label, e.name, e.actual, e.target, '', '', '']);
+            });
+          });
+          (m.expenses.subscription || []).forEach(e => {
+            if (!e.name && !e.amount) return;
+            rows.push([k, 'サブスク', e.name, subMonthly(e), subMonthly(e), e.period === 'year' ? '年額（月割り）' : '月額', '', '']);
+          });
+        });
+        return '\uFEFF' + rows.map(r => r.map(c => this.csvCell(c)).join(',')).join('\r\n') + '\r\n';
+      },
+
+      exportCsv() {
+        const range = $('csv-range').value;
+        const all = Object.keys(this.data.months).sort();
+        let keys, name;
+        if (range === 'all') { keys = all; name = 'all'; }
+        else if (range === 'year') { const y = this.viewKey.slice(0, 4); keys = all.filter(k => k.startsWith(y + '-')); name = y; }
+        else { keys = all.filter(k => k === this.viewKey); name = this.viewKey; }
+        if (keys.length === 0) { this.toast('書き出せる記録がありません（まだ入力されていない月です）'); return; }
+        this.downloadBlob(new Blob([this.buildCsv(keys)], { type: 'text/csv;charset=utf-8' }), `moneylog-${name}.csv`);
+        this.toast('CSVファイルを保存しました');
+      },
+
+      exportData() {
+        const now = new Date();
+        const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const payload = { app: 'MoneyLog', version: 2, exportedAt: now.toISOString(), months: this.data.months, recurring: this.data.recurring };
+        this.downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), `moneylog-backup-${stamp}.json`);
         try { localStorage.setItem(BACKUP_KEY, now.toISOString()); } catch (e) {}
         this.openBackup();
         this.toast('バックアップファイルを保存しました');
@@ -704,14 +946,16 @@
         const file = input.files && input.files[0];
         input.value = '';
         if (!file) return;
+        if (file.size > MAX_IMPORT_BYTES) { this.toast('ファイルが大きすぎます（5MBまで）'); return; }
         const reader = new FileReader();
         reader.onload = () => {
           let data = null;
           try {
+            if (typeof reader.result !== 'string' || reader.result.length > MAX_IMPORT_BYTES) throw new Error('size');
             const json = JSON.parse(reader.result);
             data = cleanData(json);
             // 以前の形式（1か月分だけ）のファイルにも対応
-            if (!data && json && (json.jobs || json.expenses)) data = { version: 2, months: { [monthKey()]: cleanMonth(json) } };
+            if (!data && json && typeof json === 'object' && !Array.isArray(json) && (json.jobs || json.expenses)) data = { version: 2, months: { [monthKey()]: cleanMonth(json) }, recurring: [] };
           } catch (e) {}
           if (!data || Object.keys(data.months).length === 0) {
             this.toast('MoneyLogのバックアップファイルではないようです');
@@ -719,8 +963,9 @@
           }
           const keys = Object.keys(data.months).sort();
           const range = keys.length > 1 ? `${monthLabel(keys[0])}〜${monthLabel(keys[keys.length - 1])}` : monthLabel(keys[0]);
-          this.confirm('このファイルを読み込みますか？', `${range}の${keys.length}か月分の記録です。今このブラウザにあるデータは、ファイルの内容に置き換わります。`, () => {
+          this.confirm('このファイルを読み込みますか？', `${range}の${keys.length}か月分の記録${data.recurring.length ? `と、毎月の自動入力${data.recurring.length}件` : ''}です。今このブラウザにあるデータは、ファイルの内容に置き換わります。`, () => {
             this.data = data;
+            this.applyRecurring();
             this.persist();
             this.closeBackup();
             this.setMonth(this.data.months[monthKey()] ? monthKey() : keys[keys.length - 1]);
@@ -753,6 +998,7 @@
         this.renderExpenseList('fixed');
         this.renderExpenseList('variable');
         this.renderSubscriptionList();
+        this.renderRecurring();
         this.updateSummaryUI();
       },
 
