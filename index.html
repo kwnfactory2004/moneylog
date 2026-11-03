@@ -33,6 +33,22 @@
     }
     .ic { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
     .num { font-variant-numeric: tabular-nums; }
+    .pie-layout { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+    .pie-layout.hidden { display: none; }
+    .pie-wrap { position: relative; width: 11rem; height: 11rem; flex-shrink: 0; }
+    .pie-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .pie-wrap circle { transition: stroke-dasharray .5s ease-out, stroke-dashoffset .5s ease-out; }
+    .pie-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+    .pie-legend { width: 100%; display: flex; flex-direction: column; gap: .375rem; min-width: 0; }
+    .pie-legend li { display: flex; align-items: center; gap: .5rem; font-size: 12px; min-width: 0; }
+    .pie-legend .dot { width: .625rem; height: .625rem; border-radius: 9999px; flex-shrink: 0; }
+    .pie-legend .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1D1D1F; }
+    .pie-legend .pc { color: #6b7280; width: 3rem; text-align: right; }
+    .pie-legend .am { font-weight: 600; width: 5.5rem; text-align: right; }
+    @media (min-width: 640px) {
+      .pie-layout { flex-direction: row; justify-content: center; gap: 2rem; }
+      .pie-legend { width: auto; flex: 1; max-width: 28rem; }
+    }
   </style>
 </head>
 <body class="min-h-screen p-2 sm:p-3 md:p-4 max-w-6xl mx-auto">
@@ -110,6 +126,30 @@
         <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
           <div id="summary-progress-bar" class="h-full rounded-full transition-all duration-700 ease-out bg-app-accent" style="width: 0%"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- 1.5 支出の内訳（円グラフ） -->
+    <div class="bento-card md:col-span-12">
+      <div class="flex items-center gap-2 mb-3">
+        <div class="w-8 h-8 rounded-xl bg-app-bg flex items-center justify-center text-app-text">
+          <svg class="ic"><use href="#i-pie"/></svg>
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-app-text tracking-tight">支出の内訳</h2>
+          <p class="text-[11px] text-gray-500 mt-0.5">固定費・変動費の実績の割合</p>
+        </div>
+      </div>
+      <div id="pie-empty" class="hidden text-center text-xs text-gray-400 py-6">支出の実績を入力すると内訳が表示されます</div>
+      <div id="pie-body" class="pie-layout">
+        <div class="pie-wrap">
+          <svg id="pie-svg" viewBox="0 0 120 120" role="img" aria-label="支出の内訳の円グラフ"></svg>
+          <div class="pie-center">
+            <span class="text-[10px] text-gray-500">総支出</span>
+            <span id="pie-total" class="text-sm font-bold num"></span>
+          </div>
+        </div>
+        <ul id="pie-legend" class="pie-legend"></ul>
       </div>
     </div>
 
@@ -660,6 +700,39 @@
 
         $('fixed-total-display').textContent = `合計: ${formatCurrency(totals.totalFixedActual)}`;
         $('variable-total-display').textContent = `合計: ${formatCurrency(totals.totalVarActual)}`;
+        this.renderPie();
+      },
+
+      // 支出の内訳（円グラフ）：実績が入っている項目を1スライスにする
+      renderPie() {
+        const PALETTE = ['#0F382C', '#2F7D62', '#6BB59A', '#B7D9CB', '#8A6F3E', '#C9A76B', '#4A6A8A', '#9DB4CC', '#A35C5C', '#D9A5A5', '#6B6B70', '#C4C4C8'];
+        const items = [...this.month.expenses.fixed, ...this.month.expenses.variable]
+          .map(e => ({ name: (e.name || '').trim() || '(無題)', value: Number(e.actual) || 0 }))
+          .filter(e => e.value > 0)
+          .sort((a, b) => b.value - a.value);
+        const total = items.reduce((s, e) => s + e.value, 0);
+        $('pie-empty').classList.toggle('hidden', total > 0);
+        $('pie-body').classList.toggle('hidden', total === 0);
+        if (!total) return;
+
+        // 12色を超える分は「その他」にまとめる
+        let slices = items;
+        if (items.length > PALETTE.length) {
+          const rest = items.slice(PALETTE.length - 1);
+          slices = items.slice(0, PALETTE.length - 1).concat({ name: 'その他', value: rest.reduce((s, e) => s + e.value, 0) });
+        }
+
+        const R = 40, C = 2 * Math.PI * R;
+        let offset = 0, svg = '', legend = '';
+        slices.forEach((s, i) => {
+          const frac = s.value / total, len = frac * C, color = PALETTE[i];
+          svg += `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${color}" stroke-width="20" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-offset}"><title>${escapeHTML(s.name)} ${formatCurrency(s.value)}</title></circle>`;
+          offset += len;
+          legend += `<li><span class="dot" style="background:${color}"></span><span class="nm">${escapeHTML(s.name)}</span><span class="pc num">${(frac * 100).toFixed(1)}%</span><span class="am num">${formatCurrency(s.value)}</span></li>`;
+        });
+        $('pie-svg').innerHTML = svg;
+        $('pie-legend').innerHTML = legend;
+        $('pie-total').textContent = formatCurrency(total);
       },
 
       getTotalsFor(key) {
