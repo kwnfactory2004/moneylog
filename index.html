@@ -808,7 +808,7 @@
 
       // 支出の内訳（円グラフ）：実績が入っている項目を1スライスにする
       renderPie() {
-        const PALETTE = ['#0F382C', '#2F7D62', '#6BB59A', '#B7D9CB', '#8A6F3E', '#C9A76B', '#4A6A8A', '#9DB4CC', '#A35C5C', '#D9A5A5', '#6B6B70', '#C4C4C8'];
+        const PALETTE = ['#FFADC6', '#B8E8C8', '#A9CCF5', '#FFE5A0', '#C3B5F5', '#FFC8A2', '#A0E4E0', '#D4E8A0', '#F2B8EC', '#E8C9A8', '#C5DFF8', '#C9D3DC'];
         const x = this.month.expenses;
         const items = [
           ...x.fixed.map(e => ({ name: e.name, value: Number(e.actual) || 0 })),
@@ -833,7 +833,8 @@
         let offset = 0, svg = '', legend = '';
         slices.forEach((s, i) => {
           const frac = s.value / total, len = frac * C, color = PALETTE[i];
-          svg += `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${color}" stroke-width="20" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-offset}"><title>${escapeHTML(s.name)} ${formatCurrency(s.value)}</title></circle>`;
+          const dash = slices.length > 1 ? Math.max(len - 0.8, 0.01) : len; // スライス間に細い白線を入れる
+          svg += `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${color}" stroke-width="20" stroke-dasharray="${dash} ${C - dash}" stroke-dashoffset="${-offset}"><title>${escapeHTML(s.name)} ${formatCurrency(s.value)}</title></circle>`;
           offset += len;
           legend += `<li><span class="dot" style="background:${color}"></span><span class="nm">${escapeHTML(s.name)}</span><span class="pc num">${(frac * 100).toFixed(1)}%</span><span class="am num">${formatCurrency(s.value)}</span></li>`;
         });
